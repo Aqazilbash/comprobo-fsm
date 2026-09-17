@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'drive_square = ros_behaviors_fsm.drive_square:main'
+            'emergency_stop = ros_behaviors_fsm.estop:main'
         ],
     },
 )
