@@ -58,7 +58,7 @@ class DrawSquare(Node):
         self.qy = msg.pose.pose.orientation.y
         self.qz = msg.pose.pose.orientation.z
 
-        self.get_logger().info(f"odom: x={self.x}, y={self.y}, qx={self.qx}, qy={self.qy}, qz={self.qz}")
+        #self.get_logger().info(f"odom: x={self.x}, y={self.y}, qx={self.qx}, qy={self.qy}, qz={self.qz}")
 
     def distance_goal(self, position, orientation):
         """Calculates the desired distance to a goal position and orientation.
@@ -95,6 +95,7 @@ class DrawSquare(Node):
         # the first message on the publisher is often missed
         self.drive(0.0, 0.0)
         sleep(1)
+        print(goal_reached)
         for _ in range(4):
             while not self.e_stop.is_set() and not goal_reached:
 
