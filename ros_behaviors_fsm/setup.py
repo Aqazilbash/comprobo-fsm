@@ -25,7 +25,9 @@ setup(
     entry_points={
         'console_scripts': [
             'emergency_stop_node = ros_behaviors_fsm.estop:main',
-            'draw_square_node = ros_behaviors_fsm.drive_square:main'
+            'draw_square_node = ros_behaviors_fsm.drive_square:main',
+            'dance_node = ros_behaviors_fsm.dance:main',
+            'fsm_node = ros_behaviors_fsm.finite_state_machine:main',
         ],
     },
 )

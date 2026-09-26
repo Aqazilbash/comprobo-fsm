@@ -2,6 +2,7 @@
 import rclpy  # convenience python library for interacting with ROS2
 from rclpy.node import Node  # generic Node class for interacting with ROS2
 from neato2_interfaces.msg import Bump  # local package call for a Bump type message format
+from std_msgs.msg import String
 from geometry_msgs.msg import Twist  # ROS package call for a Twist type message format
 
 
@@ -16,9 +17,12 @@ class EmergencyStopNode(Node):
     Subscribers Needed:
         - Bump bump message handling; which listens for the bump sensor data
     """
+    STATE_NAME ='ESTOP'
     def __init__(self):
         """Initializes the class."""
         super().__init__("emergency_stop_node") # node names should be unique
+
+        self.active = False
         # Create a timer that runs the robot motors
         self.create_timer(0.1, self.run_loop)
 
@@ -40,6 +44,10 @@ class EmergencyStopNode(Node):
         '''
         self.publisher = self.create_publisher(Twist, 'cmd_vel', 10)
 
+        self.done_pub = self.create_publisher(String, '/state_done', 10)
+        self.state_sub = self.create_subscription(
+            String, '/fsm_state', self.state_callback, 10)
+
 
     def process_bump(self, msg):
         """Callback for handling a bump sensor input."
@@ -52,26 +60,31 @@ class EmergencyStopNode(Node):
                            msg.left_side == 1 or \
                            msg.right_side == 1)
 
+    def state_callback(self, msg):
+        self.active = (msg.data == self.STATE_NAME)
 
     def run_loop(self):
-        """Keeps the robot moving unless a bump is registered."""
-        # Create a Twist message to describe the robot motion
-        vel = Twist()
-
-        # If the bump sensor is triggered, stop the vehicle
-        if self.bump_state == True:
-            print("bumped!")
-            vel.linear.x = 0.0
-        else:
-            vel.linear.x = 0.1
+        if not self.active:
+            return
 
         # Publish the Twist message to cmd_vel target
-        self.publisher.publish(vel)
+        self.publisher.publish(Twist())
+
+        if not self.bumped:
+            self.report_done()
+
+    def report_done(self):
+        msg = String()
+        msg.data = self.STATE_NAME
+        self.done_pub.publish(msg)
+
+
+   
 
 
 def main(args=None):
     """Initialize our node, run it, cleanup on shut down"""
-    print("running estop...")
+    #print("running estop...")
     rclpy.init(args=args)  # Initialize ROS2 network
     node = EmergencyStopNode()  # Create our node
     rclpy.spin(node)  # Run our node

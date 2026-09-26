@@ -46,6 +46,7 @@ class DrawSquare(Node):
         # the first message on the publisher is often missed
         self.drive(0.0, 0.0)
         sleep(1)
+        print(goal_reached)
         for _ in range(4):
             if not self.e_stop.is_set():
                 print("driving forward")

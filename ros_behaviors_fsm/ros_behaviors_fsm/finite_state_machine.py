@@ -1,40 +1,55 @@
-import rclpy  # convenience python library for interacting with ROS2
-from rclpy.node import Node  # generic Node class for interacting with ROS2
-from std_msgs.msg import Bool
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from neato2_interfaces.msg import Bump  # adjust to your actual bump msg type
+
 
 class FiniteStateMachine(Node):
-    #This is a node which implements a finite state machine for controlling the robot's behavior.
-
     def __init__(self):
-        # Initializes the class.
-        super().__init__("finite_state_machine") # node name
+        super().__init__('finite_state_machine')
 
-        # Create a state that stores the current state of the FSM
-        self.current_state = "IDLE"
+        self.state = 'DANCE'  # starting state, per diagram
 
-        # Recieves msgs from drive_square to indicate when behavior is finished
-        self.create_subscription(Bool, "finished", self.handle_finished, 10)
+        self.state_pub = self.create_publisher(String, '/fsm_state', 10)
+        self.bump_sub = self.create_subscription(
+            Bump, '/bump', self.bump_callback, 10)
+        self.done_sub = self.create_subscription(
+            String, '/state_done', self.done_callback, 10)
 
-    def handle_finished(self, msg):
-        # Callback for handling the finished message from the drive_square node.
-        if msg.data:
-            self.get_logger().info("Drive square finished, transitioning to IDLE state.")
-            self.current_state = "IDLE"
+        # Broadcast state regularly so nodes starting late still sync up
+        self.timer = self.create_timer(0.1, self.publish_state)
+        self.get_logger().info(self.state)
 
-    def handle_state(self, state):
-        if state == 0:
-            self.current_state = "IDLE"
-            self.get_logger().info("Transitioning to IDLE state.")
-        elif state == 1:
-            self.current_state = "DRIVE_SQUARE"
-            self.get_logger().info("Transitioning to DRIVE_SQUARE state.")
-        elif state == 2:
-            self.current_state = "WALL_FOLLOWER"
-            self.get_logger().info("Transitioning to WALL_FOLLOWER state.")
-        elif state == 3:
-            self.current_state = "DANCE"
-            self.get_logger().info("Transitioning to DANCE state.")
+    def publish_state(self):
+        msg = String()
+        msg.data = self.state
+        self.state_pub.publish(msg)
 
-    def run_loop(self):
-        # Main loop for the FSM. This function will be called repeatedly to check the current state and take appropriate actions.
-        pass
+    def bump_callback(self, msg):
+        if any([msg.left_front, msg.right_front,
+                msg.left_side, msg.right_side]):
+            if self.state != 'E_STOP':
+                self.get_logger().info('Bump detected -> E_STOP')
+                self.state = 'E_STOP'
+
+    def done_callback(self, msg):
+        # msg.data is the name of the state reporting itself done
+        transitions = {
+            'WALL_FOLLOWING': 'DRIVE_SQUARE',
+            'DRIVE_SQUARE': 'DANCE',
+            'E_STOP': 'WALL_FOLLOWING', 
+        }
+        if msg.data == self.state and self.state in transitions:
+            self.state = transitions[self.state]
+            self.get_logger().info(f'Transitioning to {self.state}')
+
+
+def main():
+    rclpy.init()
+    node = FiniteStateMachine()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
