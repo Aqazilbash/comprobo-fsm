@@ -1,148 +1,111 @@
 import rclpy
 from rclpy.node import Node
-from threading import Thread, Event
-from time import sleep
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool
-import math
+from std_msgs.msg import String
+from math import pi
 
-class DrawSquare(Node):
-    """A class for a square drawing node. This node subscribes to the estop topic and publishes to a cmd_vel topic.
-    """
-
+class DriveSquareSample1(Node):
+    STATE_NAME ='DRIVE_SQUARE'
     def __init__(self):
-        super().__init__('draw_square')
-        self.e_stop = Event()
-        # create a thread to handle long-running component
+        super().__init__('drive_square')
         self.vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.create_publisher(Bool, 'finished', 10) #msg to tell fsm that task is finished
+        self.done_pub = self.create_publisher(String, '/state_done', 10)
+        self.state_sub = self.create_subscription(String, '/fsm_state', self.state_callback, 10)
+        self.active = False
 
-        self.create_subscription(Bool, 'estop', self.handle_estop, 10)
-        self.create_subscription(Odometry, 'odom', self.handle_odom, 10)
+        self.create_timer(0.1, self.run_loop)
+        self.turns_executed = 0
+        self.executing_turn = False
+        self.finished = False       # true once one full square is complete
+        self.side_length = 0.5      # the length in meters of a square side
+        self.time_per_side = 2.5    # duration in seconds to drive the square side
+        self.time_per_turn = 2.0    # duration in seconds to turn 90 degrees
+        # start_time_of_segment indicates when a particular part of the square was
+        # started (e.g., a straight segment or a turn)
+        self.start_time_of_segment = None   
 
-        self.run_loop_thread = Thread(target=self.run_loop)
-        self.run_loop_thread.start()
-
-        self.x_position_distance = 1.0 #meters
-        self.y_position_distance = 0.0 #meters
-        self.z_position_distance = 0.0 #meters
-        self.x_orientation_distance = 0.0 #degrees
-        self.y_orientation_distance = 0.0 #degrees
-        self.z_orientation_distance = 90 #degrees
-
-
-    def handle_estop(self, msg):
-        """Handles messages received on the estop topic.
-
-        Args:
-            msg (std_msgs.msg.Bool): the message that takes value true if we
-            estop and false otherwise.
-        """ 
-        if msg.data:
-            self.e_stop.set()
-            self.drive(linear=0.0, angular=0.0)
-
-    def handle_odom(self, msg):
-        """Handles messages received on the odom topic.
-
-        Args:
-            msg (nav_msgs.msg.Odometry): the message that contains the odometry
-            information.
-        """
-        self.x = msg.pose.pose.position.x
-        self.y = msg.pose.pose.position.y
-        self.z = msg.pose.pose.position.z 
-        self.qx = msg.pose.pose.orientation.x
-        self.qy = msg.pose.pose.orientation.y
-        self.qz = msg.pose.pose.orientation.z
-
-        self.get_logger().info(f"odom: x={self.x}, y={self.y}, qx={self.qx}, qy={self.qy}, qz={self.qz}")
-
-    def distance_goal(self, position, orientation):
-        """Calculates the desired distance to a goal position and orientation.
-
-        Args:
-            position (tuple): the goal position as a tuple (x, y, z)
-            orientation (tuple): the goal orientation as a tuple (qx, qy, qz)
-        """
-        current_position = (self.x, self.y, self.z)
-        current_orientation = (self.qx, self.qy, self.qz)
-
-        new_position = []
-        for i in position:
-            desired_position = position[i] - current_position[i]
-            new_position.append(desired_position)
-
-        new_orientation = []
-        for i in orientation:
-            desired_orientation = orientation[i] - current_orientation[i]
-            new_orientation.append(desired_orientation)
-
-        return new_position, new_orientation
-
+    def state_callback(self, msg):
+        was_active = self.active
+        self.active = (msg.data == self.STATE_NAME)
+        if self.active and not was_active:
+            # just became active, reset 
+            self.turns_executed = 0
+            self.executing_turn = False
+            self.finished = False
+    
     def run_loop(self):
-        """Executes the main logic for driving the square.  This function does
-        not return until the square is finished or the estop is pressed.
-        """
-        goal_reached = self.distance_goal((self.x_position_distance, 
-                                           self.y_position_distance, 
-                                           self.z_position_distance), 
-                                          (self.x_orientation_distance, 
-                                           self.y_orientation_distance, 
-                                           self.z_orientation_distance))
-        # the first message on the publisher is often missed
-        self.drive(0.0, 0.0)
-        sleep(1)
-        for _ in range(4):
-            while not self.e_stop.is_set() and not goal_reached:
+        """ In the run_loop we are essentially implementing what's known as a finite-state
+            machine.  That is, our robot code is in a particular state (in this case defined
+            by whether or not we are turning and how many sides we've traversed thus far.
+            
+            Our run loop does the following things:
+              1. if we haven't yet marked the start time of the segment, we do so by grabbing the current time
+              2. we compute the desired time for the particular move we are executing (this will be our criteria to change state)
+              3. we check to see if we are done with our current segment and should move onto the next state
+                 -if we are done-
+                    - Transition to the next state by switching from a turn to a straight segment (or vice versa)
+                    - Reset the start time variable of the segment
+                    - set the desired velocities to 0 (so we stop in between each segment)
+                 -if we are not done-
+                    - Compute the appropriate velocity command based on the state
+                4. publish the velocity command 
+            """
+        if not self.active:
+            return
 
-                print("driving forward")
-                self.drive_forward(0.5)
-                print("turning left")
-                self.turn_left()
-        print('done with run loop')
+        # If we've already completed a square, hold still and wait for the
+        # FSM to transition us out of this state — don't start a 5th side.
+        if self.finished:
+            self.vel_pub.publish(Twist())
+            return
+        
+        if self.start_time_of_segment is None:
+            self.start_time_of_segment = self.get_clock().now()
 
-    def drive(self, linear, angular):
-        """Drive with the specified linear and angular velocity.
-
-        Args:
-            linear (_type_): the linear velocity in m/s
-            angular (_type_): the angular velocity in radians/s
-        """        
         msg = Twist()
-        msg.linear.x = linear
-        msg.angular.z = angular
-        self.vel_pub.publish(msg)
+        if self.executing_turn:
+            segment_duration = self.time_per_turn
+        else:
+            segment_duration = self.time_per_side
 
-    def turn_left(self):
-        """Execute a 90 degree left turn
-        """
-        angular_vel = 0.3
-        self.drive(linear=0.0, angular=angular_vel)
-        sleep(math.pi / angular_vel / 2)
-        self.drive(linear=0.0, angular=0.0)
+        # check to see if we are done with the segment
+        # here, I use self.get_clock().now() which is better than using time.time() since it works
+        # equally well with simulator or wall clock time (e.g., the simulator might not run
+        # at real-time).  You are totally fine using time.time(), but I wanted to show this.
+        if self.get_clock().now() - self.start_time_of_segment > rclpy.time.Duration(seconds=segment_duration):
+            if self.executing_turn:
+                self.turns_executed += 1
+            # toggle the executing_turn Boolean (turn to not turn or vice versa)
+            self.executing_turn = not self.executing_turn
+            self.start_time_of_segment = None
+            print(self.executing_turn, self.turns_executed)
+            # transition to next segment, don't change msg so we execute a stop
 
-    def drive_forward(self, distance):
-        """Drive straight for the spefcified distance.
+            # Completed 4 turns and just toggled back into a straight
+            # segment -> one full square has been driven.
+            if self.turns_executed >= 4 and not self.executing_turn:
+                self.finished = True
+                self.report_done()
+        else:
+            if self.executing_turn:
+                # we are trying to turn pi/2 radians in a particular amount of time
+                # from this we can get the angular velocity
+                msg.angular.z = (pi / 2) / segment_duration
+            else:
+                msg.linear.x = self.side_length / segment_duration
+        self.vel_pub.publish(msg) 
 
-        Args:
-            distance (_type_): the distance to drive forward.  Only positive
-            values are supported.
-        """
-        forward_vel = 0.1
-
-        self.drive(linear=forward_vel, angular=0.0)
-        sleep(distance / forward_vel)
-        self.drive(linear=0.0, angular=0.0)
+    def report_done(self):
+            msg = String()
+            msg.data = self.STATE_NAME
+            self.done_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = DrawSquare()
+    node = DriveSquareSample1()
     rclpy.spin(node)
-    node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
