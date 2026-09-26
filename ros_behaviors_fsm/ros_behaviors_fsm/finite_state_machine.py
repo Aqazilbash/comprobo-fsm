@@ -8,7 +8,7 @@ class FiniteStateMachine(Node):
     def __init__(self):
         super().__init__('finite_state_machine')
 
-        self.state = 'DANCE'  # starting state, per diagram
+        self.state = 'DRIVE_SQUARE'  # starting state, per diagram
 
         self.state_pub = self.create_publisher(String, '/fsm_state', 10)
         self.bump_sub = self.create_subscription(
@@ -18,7 +18,6 @@ class FiniteStateMachine(Node):
 
         # Broadcast state regularly so nodes starting late still sync up
         self.timer = self.create_timer(0.1, self.publish_state)
-        self.get_logger().info(self.state)
 
     def publish_state(self):
         msg = String()
@@ -32,12 +31,13 @@ class FiniteStateMachine(Node):
                 self.get_logger().info('Bump detected -> E_STOP')
                 self.state = 'E_STOP'
 
+    
     def done_callback(self, msg):
         # msg.data is the name of the state reporting itself done
         transitions = {
-            'WALL_FOLLOWING': 'DRIVE_SQUARE',
             'DRIVE_SQUARE': 'DANCE',
-            'E_STOP': 'WALL_FOLLOWING', 
+            'DANCE': 'WALL_FOLLOWING',
+            'E_STOP': 'DANCE',
         }
         if msg.data == self.state and self.state in transitions:
             self.state = transitions[self.state]

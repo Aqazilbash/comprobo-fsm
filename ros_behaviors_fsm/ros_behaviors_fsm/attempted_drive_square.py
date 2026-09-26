@@ -6,14 +6,20 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool
+from std_msgs.msg import String
 import math
 
 class DrawSquare(Node):
     """A class for a square drawing node. This node subscribes to the estop topic and publishes to a cmd_vel topic.
     """
-
+    STATE_NAME ='DRIVE_SQUARE'
     def __init__(self):
         super().__init__('draw_square')
+
+        self.active = False
+
+        self.state_pub = self.create_publisher(String, '/fsm_state', 10)
+
         self.e_stop = Event()
         # create a thread to handle long-running component
         self.vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -125,7 +131,7 @@ class DrawSquare(Node):
         self.drive(linear=0.0, angular=0.0)
 
     def drive_forward(self, distance):
-        """Drive straight for the spefcified distance.
+        """Drive straight for the specified distance.
 
         Args:
             distance (_type_): the distance to drive forward.  Only positive

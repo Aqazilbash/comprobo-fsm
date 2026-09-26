@@ -11,19 +11,27 @@ class DriveSquareSample1(Node):
         self.vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.done_pub = self.create_publisher(String, '/state_done', 10)
         self.state_sub = self.create_subscription(String, '/fsm_state', self.state_callback, 10)
+        self.active = False
 
         self.create_timer(0.1, self.run_loop)
         self.turns_executed = 0
         self.executing_turn = False
-        self.side_length = 1      # the length in meters of a square side
-        self.time_per_side = 5.0    # duration in seconds to drive the square side
+        self.finished = False       # true once one full square is complete
+        self.side_length = 0.5      # the length in meters of a square side
+        self.time_per_side = 2.5    # duration in seconds to drive the square side
         self.time_per_turn = 2.0    # duration in seconds to turn 90 degrees
         # start_time_of_segment indicates when a particular part of the square was
         # started (e.g., a straight segment or a turn)
         self.start_time_of_segment = None   
 
     def state_callback(self, msg):
+        was_active = self.active
         self.active = (msg.data == self.STATE_NAME)
+        if self.active and not was_active:
+            # just became active, reset 
+            self.turns_executed = 0
+            self.executing_turn = False
+            self.finished = False
     
     def run_loop(self):
         """ In the run_loop we are essentially implementing what's known as a finite-state
@@ -42,8 +50,18 @@ class DriveSquareSample1(Node):
                     - Compute the appropriate velocity command based on the state
                 4. publish the velocity command 
             """
+        if not self.active:
+            return
+
+        # If we've already completed a square, hold still and wait for the
+        # FSM to transition us out of this state — don't start a 5th side.
+        if self.finished:
+            self.vel_pub.publish(Twist())
+            return
+        
         if self.start_time_of_segment is None:
             self.start_time_of_segment = self.get_clock().now()
+
         msg = Twist()
         if self.executing_turn:
             segment_duration = self.time_per_turn
@@ -62,6 +80,12 @@ class DriveSquareSample1(Node):
             self.start_time_of_segment = None
             print(self.executing_turn, self.turns_executed)
             # transition to next segment, don't change msg so we execute a stop
+
+            # Completed 4 turns and just toggled back into a straight
+            # segment -> one full square has been driven.
+            if self.turns_executed >= 4 and not self.executing_turn:
+                self.finished = True
+                self.report_done()
         else:
             if self.executing_turn:
                 # we are trying to turn pi/2 radians in a particular amount of time
@@ -70,6 +94,11 @@ class DriveSquareSample1(Node):
             else:
                 msg.linear.x = self.side_length / segment_duration
         self.vel_pub.publish(msg) 
+
+    def report_done(self):
+            msg = String()
+            msg.data = self.STATE_NAME
+            self.done_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)
