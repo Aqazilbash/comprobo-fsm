@@ -16,6 +16,15 @@ This section should be composed of the following:
 * A paragraph that summarizes your key design decisions (and justifications, if relevant).
 * A figure, gif, or embedded video demonstrating the behavior, with a link to the relevant `rosbag` in your repository. Any other explanatory visuals (e.g., geometric diagrams, flow charts, etc.) are also welcome.
 
+### Behavior 1: Drive Square
+The node directs the Neato to drive in a 1x1m square shape.
+
+* A paragraph of implementation details (what do you subscribe to, what do you publish, is this multi-threaded, did you implement a parameter server, and anything else essential to your implementation). This can include any testing/debugging interfacing you added.
+The node subscribes to the /estop topic, and if the received boolean is true, it publishes a linear and angular velocity of 0 to /twist. The node calculates its progress on its desired path based on odometry data
+
+
+* A paragraph that summarizes your key design decisions (and justifications, if relevant).
+* A figure, gif, or embedded video demonstrating the behavior, with a link to the relevant `rosbag` in your repository. Any other explanatory visuals (e.g., geometric diagrams, flow charts, etc.) are also welcome.
 
 ## Finite State Machine
 In this section you will provide a description of your finite state machine including your intent, design decisions, and implementation details.
