@@ -1,16 +1,14 @@
 """ This node uses the laser scan measurement pointing straight ahead from
     the robot and compares it to a desired set distance.  The forward velocity
-    of the robot is adjusted until the robot achieves the desired distance """
+    of the robot is adjusted until the robot achieves the desired distance. The
+    robot then turns parallel to the wall and travels along it."""
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
-#from rclpy.parameter import Parameter
-#from rcl_interfaces.msg import SetParametersResult
 from rclpy.qos import qos_profile_sensor_data
-from threading import Thread, Event
-from time import sleep
+from std_msgs.msg import String
 
 class WallFollowingNode(Node):
     """ This class wraps the basic functionality of the node """
@@ -21,7 +19,10 @@ class WallFollowingNode(Node):
         self.create_timer(0.1, self.run_loop)
         self.create_subscription(LaserScan, 'scan', self.process_scan, qos_profile=qos_profile_sensor_data)
         self.vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
-        # distance_to_obstacle is used to communicate laser data to run_loop
+
+        self.done_pub = self.create_publisher(String, '/state_done', 10)
+        self.state_sub = self.create_subscription(String, '/fsm_state', self.state_callback, 10)
+        self.active = False
         self.distance_to_obstacle = float('inf')
         # Kp is the constant or to apply to the proportional error signal
         self.Kp = 0.4
@@ -33,8 +34,15 @@ class WallFollowingNode(Node):
         self.follower_state = "FORWARD"
         self.pc_front = None
         self.pc_turn = None
-        #self.run_loop_thread = Thread(target=self.run_loop)
-        #self.run_loop_thread.start()
+
+    def state_callback(self, msg):
+        was_active = self.active
+        self.active = (msg.data == self.STATE_NAME)
+        if self.active and not was_active:
+            # just became active, reset 
+            self.turns_executed = 0
+            self.executing_turn = False
+            self.finished = False
 
     def run_loop(self):
         msg = Twist()
@@ -45,7 +53,6 @@ class WallFollowingNode(Node):
         elif self.follower_state == "ROTATE":
             self.determine_side()
             print("run loop rotate")
-        #elif self.follower_state == "APPROACH":
         else:
             # use proportional control to set the velocity
             self.drive_approach()
@@ -89,12 +96,10 @@ class WallFollowingNode(Node):
             print(f"wall aligned probably L: {self.error_left} R: {self.error_right}")
         elif self.distance_left_avg and self.distance_left_avg < self.distance_right_avg:
             self.pc_turn = -(self.Kp * self.error_left)
-            #msg.angular.z = 0.3
             self.drive(linear=0.0, angular=0.3)
             print(f"wall on left L: {self.distance_left_avg} R: {self.distance_right_avg}")
         elif self.distance_right_avg and self.distance_right_avg < self.distance_left_avg:
             self.pc_turn = self.Kp * self.error_right
-            #msg.angular.z = 0.3
             self.drive(linear=0.0, angular=0.3)
             print(f"wall on right L: {self.distance_left_avg} R: {self.distance_right_avg}")
         else:
@@ -103,10 +108,6 @@ class WallFollowingNode(Node):
 
     def drive_forward(self):
         msg = Twist()
-        #self.follower_state = "FORWARD"
-        #self.drive(0.1, 0.0)
-        #msg.linear.x = 0.4
-        #self.vel_pub.publish(msg)
         
         if self.close == True:
             self.follower_state = "ROTATE"
@@ -127,10 +128,7 @@ class WallFollowingNode(Node):
             self.pc_front = self.Kp*(self.distance_to_obstacle - self.target_distance)
             self.follower_state = "APPROACH"
             self.drive(linear=self.pc_front, angular=0.0)
-            #self.vel_pub.publish(msg)
-            print(f"approach func {msg.linear.x}")
-            #self.follower_state = "ROTATE"
-            #print("switch approach to rotate (approach func)")
+            print("approach func")
 
     def close_enough(self):
         if 0.5 < self.distance_to_obstacle < 0.7:
