@@ -12,6 +12,7 @@ from std_msgs.msg import String
 
 class WallFollowingNode(Node):
     """ This class wraps the basic functionality of the node """
+    STATE_NAME ='WALL_FOLLOWING'
     def __init__(self):
         super().__init__('wall_following')
         #self.wall_follower = Event()
@@ -40,11 +41,11 @@ class WallFollowingNode(Node):
         self.active = (msg.data == self.STATE_NAME)
         if self.active and not was_active:
             # just became active, reset 
-            self.turns_executed = 0
-            self.executing_turn = False
-            self.finished = False
+            pass
 
     def run_loop(self):
+        if not self.active:
+            return
         msg = Twist()
         self.close_enough()
         if self.follower_state == "FORWARD":
@@ -135,6 +136,11 @@ class WallFollowingNode(Node):
             self.close = True
         else: 
             self.close = False
+
+    def report_done(self):
+        msg = String()
+        msg.data = self.STATE_NAME
+        self.done_pub.publish(msg)
 
         
 def main(args=None):

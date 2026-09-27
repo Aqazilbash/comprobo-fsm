@@ -37,7 +37,8 @@ class FiniteStateMachine(Node):
         transitions = {
             'DRIVE_SQUARE': 'DANCE',
             'DANCE': 'WALL_FOLLOWING',
-            'E_STOP': 'DANCE',
+            'E_STOP': 'WALL_FOLLOWING',
+            'WALL_FOLLOWING': 'DRIVE SQUARE'
         }
         if msg.data == self.state and self.state in transitions:
             self.state = transitions[self.state]

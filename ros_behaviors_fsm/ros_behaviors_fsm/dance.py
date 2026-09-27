@@ -59,6 +59,8 @@ class DanceNode(Node):
             self.move_elapsed = 0.0
             if self.move_index >= len(self.moves):
                 #self.move_index = 0  # loop the dance, or...
+                twist = Twist()
+                self.cmd_pub.publish(twist)
                 self.report_done()  # ...or report done if it should end
 
     def report_done(self):
